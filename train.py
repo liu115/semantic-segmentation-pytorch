@@ -8,9 +8,11 @@ from distutils.version import LooseVersion
 # Numerical libs
 import torch
 import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
 # Our libs
 from config import cfg
-from dataset import TrainDataset
+from dataset import TrainDataset, ValDataset
+from eval import evaluate
 from models import ModelBuilder, SegmentationModule
 from utils import AverageMeter, parse_devices, setup_logger
 from lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_replication_callback
@@ -18,6 +20,7 @@ from lib.nn import UserScatteredDataParallel, user_scattered_collate, patch_repl
 
 # train one epoch
 def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
+    writer = SummaryWriter('logs/{}_{}'.format(cfg.MODEL.arch_encoder, cfg.MODEL.arch_decoder))
     batch_time = AverageMeter()
     data_time = AverageMeter()
     ave_total_loss = AverageMeter()
@@ -64,6 +67,9 @@ def train(segmentation_module, iterator, optimizers, history, epoch, cfg):
                           batch_time.average(), data_time.average(),
                           cfg.TRAIN.running_lr_encoder, cfg.TRAIN.running_lr_decoder,
                           ave_acc.average(), ave_total_loss.average()))
+            step = (epoch * cfg.TRAIN.epoch_iters) + i
+            writer.add_scalar('train_mean_loss', ave_total_loss.average(), step)
+            writer.add_scalar('train_mean_acc', ave_acc.average(), step)
 
             fractional_epoch = epoch - 1 + 1. * i / cfg.TRAIN.epoch_iters
             history['train']['epoch'].append(fractional_epoch)
@@ -159,6 +165,7 @@ def main(cfg, gpus):
     else:
         segmentation_module = SegmentationModule(
             net_encoder, net_decoder, crit)
+    print(segmentation_module)
 
     # Dataset and Loader
     dataset_train = TrainDataset(
